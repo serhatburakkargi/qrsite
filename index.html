@@ -194,13 +194,11 @@
     <div class="controls">
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <button id="addBtn" class="small">Buton Ekle</button>
-        <button id="forceSaveBtn" class="small">Kaydı Zorla</button>
         <button id="exportJsonBtn" class="small">JSON Dışa Aktar</button>
         <button id="importJsonBtn" class="small">JSON İçe Aktar</button>
-        <button id="resetBtn" class="small">Varsayılana Dön (Sadece Bu Cihaz)</button>
       </div>
       <div style="font-size:12px;color:var(--muted);">
-        Firebase = tüm cihazlar, JSON = yedek / manuel taşıma.
+        Firebase = tüm cihazlar • JSON = yedek / taşıma.
       </div>
     </div>
   </div>
@@ -209,7 +207,7 @@
 </div>
 
 <script>
-// ---------- Firebase ayarı ----------
+// ---------- Firebase ayarı (senin config'in) ----------
 const firebaseConfig = {
   apiKey: "AIzaSyC65Cce1RHW6rYA5W8ic76_-WHEUGbASHI",
   authDomain: "sbkq-60ba0.firebaseapp.com",
@@ -222,13 +220,13 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-// Tek doküman kullanıyoruz
 const DOC_REF = db.collection("butonluPages").doc("default");
 
-// ---------- Uygulama ayarları ----------
+// ---------- Uygulama durumu ----------
 const LOCAL_KEY = "butonlu_firebase_cache_v1";
-let fileData = {}; // dosyalar cihazda
+let fileData = {}; // dosyalar sadece bu cihazda
 let buttons = [];
+
 const DEFAULTS = [
   { id: 1, label: "Instagram", url: "https://www.instagram.com/sebukagraphic_", icon: "📷", type: "link" },
   { id: 2, label: "E-posta", mail: "serhatbrkkrg@gmail.com", icon: "✉️", type: "mail" }
@@ -297,7 +295,7 @@ function scheduleSaveToFirebase(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async ()=>{
     try{
-      await DOC_REF.set({buttons: buttons});
+      await DOC_REF.set({buttons});
       console.log("Firebase'e kaydedildi");
     }catch(e){
       console.error("Firebase kaydetme hatası:", e);
@@ -413,7 +411,7 @@ function updateExtras(){
           const reader = new FileReader();
           reader.onload = ev=>{
             fileData[it.id] = { name:f.name, dataUrl:ev.target.result };
-            saveLocal(); // dosyalar sadece local
+            saveLocal(); // sadece local
             renderButtons();
             updateExtras();
             alert("Dosya yüklendi: " + f.name);
@@ -503,7 +501,7 @@ function attachEditorHandlers(){
   });
 }
 
-// ---------- JSON dışa/içe aktar ----------
+// ---------- JSON dışa / içe aktar ----------
 function downloadButtonsJson(){
   const plain = buttons.map(it=>({
     id: it.id,
@@ -587,27 +585,6 @@ document.addEventListener("DOMContentLoaded", async ()=>{
       type: "link",
       mail: ""
     });
-    scheduleSaveToFirebase();
-    renderEditor();
-    renderButtons();
-  });
-
-  document.getElementById("forceSaveBtn").addEventListener("click", async ()=>{
-    try{
-      await DOC_REF.set({buttons});
-      saveLocal();
-      alert("Firebase'e kaydedildi.");
-    }catch(e){
-      alert("Kaydedilirken hata oluştu: " + e.message);
-    }
-  });
-
-  document.getElementById("resetBtn").addEventListener("click", async ()=>{
-    if(!confirm("Bu cihazdaki yerel kaydı sıfırlamak istiyor musun? (Firebase verisi ayrı kalır)")) return;
-    localStorage.removeItem(LOCAL_KEY);
-    localStorage.removeItem(LOCAL_KEY+"_files");
-    fileData = {};
-    buttons = DEFAULTS.slice();
     scheduleSaveToFirebase();
     renderEditor();
     renderButtons();
