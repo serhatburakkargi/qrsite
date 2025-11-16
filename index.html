@@ -188,7 +188,7 @@
   <div class="editor">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
       <div style="font-weight:700;">Butonları Düzenle</div>
-      <div class="pill">Değişiklikler otomatik Firebase'e kaydedilir.</div>
+      <div class="pill">Kaynak: Firebase (tüm cihazlar). JSON = yedek.</div>
     </div>
     <div id="edit-list"></div>
     <div class="controls">
@@ -200,7 +200,7 @@
         <button id="resetBtn" class="small">Varsayılana Dön (Sadece Bu Cihaz)</button>
       </div>
       <div style="font-size:12px;color:var(--muted);">
-        Firebase = tüm cihazlar, JSON = yedek / manuel taşıma.
+        Diğer cihazlar Firebase'deki son veriyi çeker.
       </div>
     </div>
   </div>
@@ -227,8 +227,9 @@ const DOC_REF = db.collection("butonluPages").doc("default");
 
 // ---------- Uygulama ayarları ----------
 const LOCAL_KEY = "butonlu_firebase_cache_v1";
-let fileData = {}; // dosyalar cihazda
+let fileData = {}; // dosyalar cihazda (Firebase'e gitmiyor)
 let buttons = [];
+
 const DEFAULTS = [
   { id: 1, label: "Instagram", url: "https://www.instagram.com/sebukagraphic_", icon: "📷", type: "link" },
   { id: 2, label: "E-posta", mail: "serhatbrkkrg@gmail.com", icon: "✉️", type: "mail" }
@@ -249,7 +250,7 @@ function escapeAttr(s){
   return String(s).replace(/"/g,"&quot;");
 }
 
-// ---- Local cache ----
+// ---- Local cache (sadece cache, asıl kaynak Firebase) ----
 function saveLocal(){
   localStorage.setItem(LOCAL_KEY, JSON.stringify(buttons));
   localStorage.setItem(LOCAL_KEY+"_files", JSON.stringify(fileData));
@@ -274,35 +275,35 @@ function loadFileData(){
   }
 }
 
-// ---- Firebase'den okuma / yazma ----
-async function loadFromFirebase(){
-  try{
-    const snap = await DOC_REF.get();
-    if(snap.exists){
-      const data = snap.data();
-      if(Array.isArray(data.buttons)) return data.buttons;
-    }else{
-      await DOC_REF.set({buttons: DEFAULTS});
-      return DEFAULTS.slice();
-    }
-  }catch(e){
-    console.error("Firebase'den yüklenemedi:", e);
-  }
-  return DEFAULTS.slice();
+// ---- Buton listesini normalize et ----
+function normalizeButtons(list){
+  if(!Array.isArray(list)) return DEFAULTS.slice();
+  return list.map(b=>{
+    const copy = {
+      id: b.id || (Date.now() + Math.floor(Math.random()*10000)),
+      label: b.label || "",
+      url: b.url || "",
+      type: b.type || "link",
+      icon: b.icon || "🔗",
+      mail: b.mail || ""
+    };
+    return copy;
+  });
 }
 
+// ---- Firebase'e yazma (debounce'lu) ----
 let saveTimer = null;
 function scheduleSaveToFirebase(){
   saveLocal();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async ()=>{
     try{
-      await DOC_REF.set({buttons: buttons});
+      await DOC_REF.set({buttons});
       console.log("Firebase'e kaydedildi");
     }catch(e){
       console.error("Firebase kaydetme hatası:", e);
     }
-  }, 600);
+  }, 500);
 }
 
 // ---------- Arayüz: butonlar ----------
@@ -413,7 +414,7 @@ function updateExtras(){
           const reader = new FileReader();
           reader.onload = ev=>{
             fileData[it.id] = { name:f.name, dataUrl:ev.target.result };
-            saveLocal(); // dosyalar sadece local
+            saveLocal(); // dosyalar sadece localde
             renderButtons();
             updateExtras();
             alert("Dosya yüklendi: " + f.name);
@@ -534,11 +535,7 @@ function importButtonsFromJsonFile(){
       try{
         const parsed = JSON.parse(ev.target.result);
         if(Array.isArray(parsed)){
-          buttons = parsed.map(b=>{
-            if(!b.id) b.id = Date.now() + Math.floor(Math.random()*10000);
-            if(!b.type) b.type = "link";
-            return b;
-          });
+          buttons = normalizeButtons(parsed);
           scheduleSaveToFirebase();
           renderEditor();
           renderButtons();
@@ -555,29 +552,50 @@ function importButtonsFromJsonFile(){
   inp.click();
 }
 
-// ---------- INIT ----------
+// ---------- INIT + Firebase listener ----------
 document.addEventListener("DOMContentLoaded", async ()=>{
   loadFileData();
 
+  // Önce local cache'i göster (internet yavaşsa boş kalmasın)
   let localButtons = loadLocal();
   if(localButtons && localButtons.length){
-    buttons = localButtons;
+    buttons = normalizeButtons(localButtons);
   }else{
-    const remote = await loadFromFirebase();
-    buttons = remote;
+    buttons = DEFAULTS.slice();
   }
-
-  // id / type garanti
-  buttons = buttons.map(b=>{
-    if(!b.id) b.id = Date.now() + Math.floor(Math.random()*10000);
-    if(!b.type) b.type = "link";
-    return b;
-  });
-
-  saveLocal();
   renderButtons();
   renderEditor();
 
+  // Firebase'i dinle: gerçek kaynak burası
+  DOC_REF.onSnapshot(async snap=>{
+    try{
+      if(snap.exists){
+        const data = snap.data();
+        const cloudButtons = normalizeButtons(data.buttons || []);
+        // Eğer buluttaki veri ile şimdiki veri farklıysa güncelle
+        if(JSON.stringify(cloudButtons) !== JSON.stringify(buttons)){
+          buttons = cloudButtons;
+          saveLocal();
+          renderButtons();
+          renderEditor();
+          console.log("Firebase'den güncellendi");
+        }
+      }else{
+        // Doküman yoksa default oluştur
+        await DOC_REF.set({buttons: DEFAULTS});
+        buttons = DEFAULTS.slice();
+        saveLocal();
+        renderButtons();
+        renderEditor();
+      }
+    }catch(e){
+      console.error("Snapshot işlenirken hata:", e);
+    }
+  }, err=>{
+    console.error("Firebase onSnapshot hatası:", err);
+  });
+
+  // Butonlar
   document.getElementById("addBtn").addEventListener("click", ()=>{
     buttons.push({
       id: Date.now(),
@@ -603,7 +621,7 @@ document.addEventListener("DOMContentLoaded", async ()=>{
   });
 
   document.getElementById("resetBtn").addEventListener("click", async ()=>{
-    if(!confirm("Bu cihazdaki yerel kaydı sıfırlamak istiyor musun? (Firebase verisi ayrı kalır)")) return;
+    if(!confirm("Bu cihazdaki yerel cache'i sıfırlayıp Firebase'i varsayılana döndürmek istiyor musun?")) return;
     localStorage.removeItem(LOCAL_KEY);
     localStorage.removeItem(LOCAL_KEY+"_files");
     fileData = {};
