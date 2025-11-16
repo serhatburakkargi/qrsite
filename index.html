@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Butonlu Sayfa — Firebase Senkron</title>
+  <title>Butonlu Sayfa — Firebase + JSON</title>
   <style>
     :root{
       --bg:#0b0f17; --card:#0b1220; --accent:#00b894; --muted:#9fb0c8;
@@ -179,7 +179,7 @@
     <div class="logo"><strong>SB</strong></div>
     <div>
       <h1>Butonlu Sayfa</h1>
-      <div class="lead">Link / Mail / Dosya — Firebase ile tüm cihazlarda aynı.</div>
+      <div class="lead">Link / Mail / Dosya — Firebase senkron + JSON içe/dışa aktar.</div>
     </div>
   </div>
 
@@ -195,15 +195,17 @@
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <button id="addBtn" class="small">Buton Ekle</button>
         <button id="forceSaveBtn" class="small">Kaydı Zorla</button>
+        <button id="exportJsonBtn" class="small">JSON Dışa Aktar</button>
+        <button id="importJsonBtn" class="small">JSON İçe Aktar</button>
         <button id="resetBtn" class="small">Varsayılana Dön (Sadece Bu Cihaz)</button>
       </div>
       <div style="font-size:12px;color:var(--muted);">
-        Tüm cihazlar aynı Firebase verisini kullanır.
+        Firebase = tüm cihazlar, JSON = yedek / manuel taşıma.
       </div>
     </div>
   </div>
 
-  <div class="footer">GitHub Pages + Firebase Firestore senkron.</div>
+  <div class="footer">GitHub Pages + Firebase Firestore + JSON.</div>
 </div>
 
 <script>
@@ -220,13 +222,13 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
-// Tek doküman kullanıyoruz: butonluPages/default
+// Tek doküman kullanıyoruz
 const DOC_REF = db.collection("butonluPages").doc("default");
 
 // ---------- Uygulama ayarları ----------
 const LOCAL_KEY = "butonlu_firebase_cache_v1";
-// dosyalar cihazda, databasede değil
-let fileData = {};
+let fileData = {}; // dosyalar cihazda
+let buttons = [];
 const DEFAULTS = [
   { id: 1, label: "Instagram", url: "https://www.instagram.com/sebukagraphic_", icon: "📷", type: "link" },
   { id: 2, label: "E-posta", mail: "serhatbrkkrg@gmail.com", icon: "✉️", type: "mail" }
@@ -248,7 +250,7 @@ function escapeAttr(s){
 }
 
 // ---- Local cache ----
-function saveLocal(buttons){
+function saveLocal(){
   localStorage.setItem(LOCAL_KEY, JSON.stringify(buttons));
   localStorage.setItem(LOCAL_KEY+"_files", JSON.stringify(fileData));
 }
@@ -290,8 +292,8 @@ async function loadFromFirebase(){
 }
 
 let saveTimer = null;
-function scheduleSaveToFirebase(buttons){
-  saveLocal(buttons);
+function scheduleSaveToFirebase(){
+  saveLocal();
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async ()=>{
     try{
@@ -300,14 +302,14 @@ function scheduleSaveToFirebase(buttons){
     }catch(e){
       console.error("Firebase kaydetme hatası:", e);
     }
-  }, 600); // 0.6sn debounce
+  }, 600);
 }
 
 // ---------- Arayüz: butonlar ----------
-function renderButtons(list){
+function renderButtons(){
   const c = document.getElementById("buttons");
   c.innerHTML = "";
-  list.forEach(it=>{
+  buttons.forEach(it=>{
     const b = document.createElement("div");
     b.className = "btn";
     b.tabIndex = 0;
@@ -350,10 +352,10 @@ function openItem(it){
 }
 
 // ---------- Editor ----------
-function renderEditor(list){
+function renderEditor(){
   const el = document.getElementById("edit-list");
   el.innerHTML = "";
-  list.forEach((it, idx)=>{
+  buttons.forEach((it, idx)=>{
     const row = document.createElement("div");
     row.className = "row";
     row.innerHTML = `
@@ -375,17 +377,17 @@ function renderEditor(list){
   });
   el.querySelectorAll(".typ").forEach(sel=>{
     const i = +sel.dataset.i;
-    sel.value = list[i].type || "link";
+    sel.value = buttons[i].type || "link";
   });
-  updateExtras(list);
-  attachEditorHandlers(list);
+  updateExtras();
+  attachEditorHandlers();
 }
 
-function updateExtras(list){
+function updateExtras(){
   document.querySelectorAll(".extra").forEach(ex=>{
     ex.innerHTML = "";
     const idx = +ex.parentElement.querySelector(".lbl").dataset.i;
-    const it = list[idx];
+    const it = buttons[idx];
     if(it.type === "mail"){
       const mailInput = document.createElement("input");
       mailInput.type = "text";
@@ -393,8 +395,8 @@ function updateExtras(list){
       mailInput.value = it.mail || "";
       mailInput.addEventListener("input", e=>{
         it.mail = e.target.value;
-        scheduleSaveToFirebase(list);
-        renderButtons(list);
+        scheduleSaveToFirebase();
+        renderButtons();
       });
       ex.appendChild(mailInput);
     }else if(it.type === "dosya"){
@@ -411,9 +413,9 @@ function updateExtras(list){
           const reader = new FileReader();
           reader.onload = ev=>{
             fileData[it.id] = { name:f.name, dataUrl:ev.target.result };
-            saveLocal(list); // dosyalar sadece localde
-            renderButtons(list);
-            updateExtras(list);
+            saveLocal(); // dosyalar sadece local
+            renderButtons();
+            updateExtras();
             alert("Dosya yüklendi: " + f.name);
           };
           reader.readAsDataURL(f);
@@ -433,81 +435,136 @@ function updateExtras(list){
   });
 }
 
-function attachEditorHandlers(list){
+function attachEditorHandlers(){
   document.querySelectorAll(".lbl").forEach(inp=>{
     inp.addEventListener("input", e=>{
       const i = +inp.dataset.i;
-      list[i].label = e.target.value;
-      scheduleSaveToFirebase(list);
-      renderButtons(list);
+      buttons[i].label = e.target.value;
+      scheduleSaveToFirebase();
+      renderButtons();
     });
   });
   document.querySelectorAll(".url").forEach(inp=>{
     inp.addEventListener("input", e=>{
       const i = +inp.dataset.i;
-      list[i].url = e.target.value;
-      scheduleSaveToFirebase(list);
-      renderButtons(list);
+      buttons[i].url = e.target.value;
+      scheduleSaveToFirebase();
+      renderButtons();
     });
   });
   document.querySelectorAll(".icn").forEach(inp=>{
     inp.addEventListener("input", e=>{
       const i = +inp.dataset.i;
-      list[i].icon = e.target.value;
-      scheduleSaveToFirebase(list);
-      renderButtons(list);
+      buttons[i].icon = e.target.value;
+      scheduleSaveToFirebase();
+      renderButtons();
     });
   });
   document.querySelectorAll(".typ").forEach(sel=>{
     sel.addEventListener("change", e=>{
       const i = +sel.dataset.i;
-      list[i].type = e.target.value;
-      scheduleSaveToFirebase(list);
-      renderEditor(list);
-      renderButtons(list);
+      buttons[i].type = e.target.value;
+      scheduleSaveToFirebase();
+      renderEditor();
+      renderButtons();
     });
   });
   document.querySelectorAll(".up").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       const i = +btn.dataset.i;
       if(i <= 0) return;
-      [list[i-1], list[i]] = [list[i], list[i-1]];
-      scheduleSaveToFirebase(list);
-      renderEditor(list);
-      renderButtons(list);
+      [buttons[i-1], buttons[i]] = [buttons[i], buttons[i-1]];
+      scheduleSaveToFirebase();
+      renderEditor();
+      renderButtons();
     });
   });
   document.querySelectorAll(".down").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       const i = +btn.dataset.i;
-      if(i >= list.length-1) return;
-      [list[i], list[i+1]] = [list[i+1], list[i]];
-      scheduleSaveToFirebase(list);
-      renderEditor(list);
-      renderButtons(list);
+      if(i >= buttons.length-1) return;
+      [buttons[i], buttons[i+1]] = [buttons[i+1], buttons[i]];
+      scheduleSaveToFirebase();
+      renderEditor();
+      renderButtons();
     });
   });
   document.querySelectorAll(".del").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       const i = +btn.dataset.i;
-      const id = list[i].id;
+      const id = buttons[i].id;
       if(!confirm("Bu butonu silmek istiyor musun?")) return;
-      list.splice(i,1);
+      buttons.splice(i,1);
       if(fileData[id]) delete fileData[id];
-      scheduleSaveToFirebase(list);
-      renderEditor(list);
-      renderButtons(list);
+      scheduleSaveToFirebase();
+      renderEditor();
+      renderButtons();
     });
   });
+}
+
+// ---------- JSON dışa/içe aktar ----------
+function downloadButtonsJson(){
+  const plain = buttons.map(it=>({
+    id: it.id,
+    label: it.label || "",
+    url: it.url || "",
+    type: it.type || "link",
+    icon: it.icon || "",
+    mail: it.mail || ""
+  }));
+  const blob = new Blob([JSON.stringify(plain,null,2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "butonlar.json";
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),300);
+}
+
+function importButtonsFromJsonFile(){
+  const inp = document.createElement("input");
+  inp.type = "file";
+  inp.accept = "application/json";
+  inp.onchange = e=>{
+    const f = e.target.files[0];
+    if(!f) return;
+    const r = new FileReader();
+    r.onload = ev=>{
+      try{
+        const parsed = JSON.parse(ev.target.result);
+        if(Array.isArray(parsed)){
+          buttons = parsed.map(b=>{
+            if(!b.id) b.id = Date.now() + Math.floor(Math.random()*10000);
+            if(!b.type) b.type = "link";
+            return b;
+          });
+          scheduleSaveToFirebase();
+          renderEditor();
+          renderButtons();
+          alert("JSON içe aktarıldı ve Firebase'e kaydedildi.");
+        }else{
+          alert("Geçersiz JSON formatı.");
+        }
+      }catch(err){
+        alert("JSON okunamadı: " + err.message);
+      }
+    };
+    r.readAsText(f);
+  };
+  inp.click();
 }
 
 // ---------- INIT ----------
 document.addEventListener("DOMContentLoaded", async ()=>{
   loadFileData();
 
-  let buttons = loadLocal();
-  if(!buttons || !buttons.length){
-    buttons = await loadFromFirebase();
+  let localButtons = loadLocal();
+  if(localButtons && localButtons.length){
+    buttons = localButtons;
+  }else{
+    const remote = await loadFromFirebase();
+    buttons = remote;
   }
 
   // id / type garanti
@@ -517,9 +574,9 @@ document.addEventListener("DOMContentLoaded", async ()=>{
     return b;
   });
 
-  saveLocal(buttons);
-  renderButtons(buttons);
-  renderEditor(buttons);
+  saveLocal();
+  renderButtons();
+  renderEditor();
 
   document.getElementById("addBtn").addEventListener("click", ()=>{
     buttons.push({
@@ -530,15 +587,15 @@ document.addEventListener("DOMContentLoaded", async ()=>{
       type: "link",
       mail: ""
     });
-    scheduleSaveToFirebase(buttons);
-    renderEditor(buttons);
-    renderButtons(buttons);
+    scheduleSaveToFirebase();
+    renderEditor();
+    renderButtons();
   });
 
   document.getElementById("forceSaveBtn").addEventListener("click", async ()=>{
     try{
       await DOC_REF.set({buttons});
-      saveLocal(buttons);
+      saveLocal();
       alert("Firebase'e kaydedildi.");
     }catch(e){
       alert("Kaydedilirken hata oluştu: " + e.message);
@@ -551,10 +608,13 @@ document.addEventListener("DOMContentLoaded", async ()=>{
     localStorage.removeItem(LOCAL_KEY+"_files");
     fileData = {};
     buttons = DEFAULTS.slice();
-    scheduleSaveToFirebase(buttons);
-    renderEditor(buttons);
-    renderButtons(buttons);
+    scheduleSaveToFirebase();
+    renderEditor();
+    renderButtons();
   });
+
+  document.getElementById("exportJsonBtn").addEventListener("click", downloadButtonsJson);
+  document.getElementById("importJsonBtn").addEventListener("click", importButtonsFromJsonFile);
 });
 </script>
 </body>
